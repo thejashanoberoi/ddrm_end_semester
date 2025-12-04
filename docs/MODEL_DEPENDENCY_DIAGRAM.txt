@@ -1,0 +1,209 @@
+# Model Dependency Visualization
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     DDRM Model Architecture                      │
+│                    (Choose ONE path below)                       │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │  main.py start  │
+                    └─────────────────┘
+                              │
+                              ▼
+                    ┌──────────────────┐
+                    │ Read config.yml  │
+                    └──────────────────┘
+                              │
+            ┌─────────────────┴─────────────────┐
+            │                                   │
+            ▼                                   ▼
+   ┌─────────────────┐              ┌──────────────────┐
+   │ type: "simple"  │              │ type: "openai"   │
+   └─────────────────┘              └──────────────────┘
+            │                                   │
+            ▼                                   ▼
+   ┌─────────────────┐              ┌──────────────────┐
+   │  Load Custom    │              │   Load OpenAI    │
+   │  DDPM Model     │              │   UNet Model     │
+   │                 │              │                  │
+   │ • CelebA-HQ     │              │ • ImageNet 256   │
+   │ • LSUN Bedroom  │              │ • ImageNet 512   │
+   │ • LSUN Cat      │              │                  │
+   │ • LSUN Church   │              └──────────────────┘
+   └─────────────────┘                        │
+            │                          ┌──────┴──────┐
+            │                          │             │
+            │                          ▼             ▼
+            │              ┌──────────────────┐  ┌──────────────────┐
+            │              │ class_cond:false │  │ class_cond:true  │
+            │              └──────────────────┘  └──────────────────┘
+            │                          │                   │
+            │                          │                   ▼
+            │                          │         ┌──────────────────┐
+            │                          │         │ Load Classifier  │
+            │                          │         │   EncoderUNet    │
+            │                          │         └──────────────────┘
+            │                          │                   │
+            ▼                          ▼                   ▼
+   ┌─────────────────┐      ┌──────────────────┐  ┌──────────────────┐
+   │   cls_fn=None   │      │   cls_fn=None    │  │  cls_fn=cond_fn  │
+   └─────────────────┘      └──────────────────┘  └──────────────────┘
+            │                          │                   │
+            └──────────────┬───────────┴───────────────────┘
+                           │
+                           ▼
+              ┌─────────────────────────┐
+              │  sample_sequence(       │
+              │    model,               │
+              │    cls_fn               │
+              │  )                      │
+              └─────────────────────────┘
+                           │
+                           ▼
+              ┌─────────────────────────┐
+              │ efficient_generalized_  │
+              │ steps(...)              │
+              │                         │
+              │ At each timestep:       │
+              │   if cls_fn == None:    │
+              │     et = model(xt, t)   │
+              │   else:                 │
+              │     et = model(xt, t)   │
+              │     et = et - gradient  │
+              │         from classifier │
+              └─────────────────────────┘
+                           │
+                           ▼
+              ┌─────────────────────────┐
+              │   Restored Images       │
+              └─────────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────┐
+│                     DEPENDENCY SUMMARY                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  PATH 1: Custom DDPM (Standalone)                              │
+│  ═════════════════════════════════                              │
+│  Custom DDPM Model  ──→  DDRM Sampling  ──→  Output           │
+│  (No dependencies)                                              │
+│                                                                  │
+│  - Used for: CelebA, LSUN datasets                             │
+│  - Memory: ~1-2 GB VRAM                                        │
+│  - Independent: ✅ Yes                                          │
+│                                                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  PATH 2: OpenAI Guided Diffusion (Standalone)                  │
+│  ══════════════════════════════════════════                    │
+│  OpenAI UNet Model  ──→  DDRM Sampling  ──→  Output           │
+│  (No dependencies)                                              │
+│                                                                  │
+│  - Used for: ImageNet (unconditional)                          │
+│  - Memory: ~2-4 GB VRAM                                        │
+│  - Independent: ✅ Yes                                          │
+│                                                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  PATH 3: OpenAI + Classifier (Dependent)                       │
+│  ═════════════════════════════════════════                     │
+│  OpenAI UNet Model ─┐                                          │
+│                      ├──→  DDRM Sampling  ──→  Output          │
+│  Classifier Model ──┘      (with guidance)                     │
+│                                                                  │
+│  - Used for: ImageNet (class-conditional)                      │
+│  - Memory: ~3-5 GB VRAM                                        │
+│  - Independent: ❌ Classifier needs UNet                        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────┐
+│                  CANNOT HAPPEN (Impossible)                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ❌ Custom DDPM + OpenAI UNet (mutually exclusive)             │
+│  ❌ Custom DDPM + Classifier (classifier needs OpenAI)         │
+│  ❌ Classifier alone (needs a diffusion model)                 │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────┐
+│              MODEL INTERACTION DURING SAMPLING                   │
+└─────────────────────────────────────────────────────────────────┘
+
+Timestep T → T-1 → ... → 1 → 0
+
+WITHOUT CLASSIFIER (cls_fn = None):
+────────────────────────────────────
+   xt ──→ [Diffusion Model] ──→ et (noise prediction)
+          ↓
+       x0_t = (xt - √(1-ᾱt)·et) / √ᾱt
+          ↓
+       [DDRM degradation correction]
+          ↓
+       xt-1
+
+
+WITH CLASSIFIER (cls_fn = cond_fn):
+────────────────────────────────────
+   xt ──→ [Diffusion Model] ──→ et (initial noise prediction)
+          ↓
+   xt ──→ [Classifier] ──→ ∇log p(y|xt) (class gradient)
+          ↓
+       et_corrected = et - √(1-ᾱt) · ∇log p(y|xt) · scale
+          ↓
+       x0_t = (xt - √(1-ᾱt)·et_corrected) / √ᾱt
+          ↓
+       [DDRM degradation correction]
+          ↓
+       xt-1
+
+Note: Classifier provides gradient to guide generation toward target class.
+
+
+┌─────────────────────────────────────────────────────────────────┐
+│                  CONFIGURATION MAPPING                           │
+├──────────────────────┬───────────────┬──────────────────────────┤
+│ Config File          │ Diffusion     │ Classifier               │
+├──────────────────────┼───────────────┼──────────────────────────┤
+│ celeba_hq.yml        │ Custom DDPM   │ None                     │
+│ bedroom.yml          │ Custom DDPM   │ None                     │
+│ cat.yml              │ Custom DDPM   │ None                     │
+│ church.yml           │ Custom DDPM   │ None                     │
+│ imagenet_256.yml     │ OpenAI UNet   │ None                     │
+│ imagenet_256_cc.yml  │ OpenAI UNet   │ ✅ Loaded & Used         │
+│ imagenet_512_cc.yml  │ OpenAI UNet   │ ✅ Loaded & Used         │
+└──────────────────────┴───────────────┴──────────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────┐
+│                      KEY TAKEAWAYS                               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│ 1. Models are ALTERNATIVES, not collaborators                   │
+│    - Pick ONE diffusion model based on dataset                  │
+│    - Custom DDPM OR OpenAI, never both                         │
+│                                                                  │
+│ 2. Classifier is an OPTIONAL ADD-ON                            │
+│    - Only works with OpenAI UNet model                         │
+│    - Provides class-conditional guidance                        │
+│    - Cannot function without diffusion model                    │
+│                                                                  │
+│ 3. Three possible configurations:                               │
+│    A) Custom DDPM only      (CelebA, LSUN)                     │
+│    B) OpenAI UNet only      (ImageNet unconditional)           │
+│    C) OpenAI UNet + Classifier (ImageNet conditional)          │
+│                                                                  │
+│ 4. Selection is CONFIG-DRIVEN                                   │
+│    - model.type: "simple" vs "openai"                          │
+│    - model.class_cond: true/false (only for OpenAI)           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Generated via static code analysis - December 4, 2025**
+

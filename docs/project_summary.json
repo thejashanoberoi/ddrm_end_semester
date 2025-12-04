@@ -1,0 +1,684 @@
+{
+  "project_name": "DDRM - Denoising Diffusion Restoration Models",
+  "entry_point": "Untitled5.ipynb",
+  "description": "Research implementation using pre-trained DDPMs for solving linear inverse problems in image restoration without task-specific training",
+  "paper": "https://arxiv.org/abs/2201.11793",
+  "files": [
+    {
+      "path": "main.py",
+      "type": "python_script",
+      "summary": "CLI entry point for DDRM sampling. Parses arguments, loads config, sets up logging, initializes Diffusion runner, executes sampling.",
+      "functions": [
+        {
+          "name": "parse_args_and_config",
+          "signature": "()",
+          "docstring": "NONE",
+          "returns": "Tuple[argparse.Namespace, argparse.Namespace]",
+          "callers": ["main()"],
+          "side_effects": ["File I/O (YAML read)", "Directory creation", "Logging setup", "User input if --ni not set"],
+          "confidence": "HIGH"
+        },
+        {
+          "name": "dict2namespace",
+          "signature": "(config: dict)",
+          "docstring": "NONE",
+          "returns": "argparse.Namespace",
+          "callers": ["parse_args_and_config()"],
+          "side_effects": [],
+          "confidence": "HIGH"
+        },
+        {
+          "name": "main",
+          "signature": "()",
+          "docstring": "NONE",
+          "returns": "int (exit code)",
+          "callers": ["__main__"],
+          "side_effects": ["Creates Diffusion runner", "Executes sampling", "Logs to console", "Exception handling"],
+          "confidence": "HIGH"
+        }
+      ],
+      "classes": []
+    },
+    {
+      "path": "runners/diffusion.py",
+      "type": "python_module",
+      "summary": "Main Diffusion runner class. Handles model loading, dataset preparation, degradation operator instantiation, and sampling orchestration.",
+      "functions": [
+        {
+          "name": "get_beta_schedule",
+          "signature": "(beta_schedule, beta_start, beta_end, num_diffusion_timesteps)",
+          "docstring": "NONE",
+          "returns": "np.ndarray",
+          "callers": ["Diffusion.__init__()"],
+          "side_effects": [],
+          "confidence": "HIGH"
+        }
+      ],
+      "classes": [
+        {
+          "name": "Diffusion",
+          "base_classes": ["object"],
+          "methods": ["__init__", "sample", "sample_sequence", "sample_image"],
+          "attributes": ["args", "config", "device", "betas", "num_timesteps", "alphas_cumprod_prev", "logvar"],
+          "summary": "Main runner for DDRM inference. Loads models, prepares datasets, instantiates degradation operators, runs reverse diffusion sampling."
+        }
+      ]
+    },
+    {
+      "path": "functions/denoising.py",
+      "type": "python_module",
+      "summary": "Core DDRM algorithm implementation. Efficient generalized reverse diffusion steps with degradation correction.",
+      "functions": [
+        {
+          "name": "compute_alpha",
+          "signature": "(beta, t)",
+          "docstring": "NONE",
+          "returns": "torch.Tensor",
+          "callers": ["efficient_generalized_steps()"],
+          "side_effects": [],
+          "confidence": "HIGH"
+        },
+        {
+          "name": "efficient_generalized_steps",
+          "signature": "(x, seq, model, b, H_funcs, y_0, sigma_0, etaB, etaA, etaC, cls_fn=None, classes=None)",
+          "docstring": "NONE",
+          "returns": "Tuple[List[torch.Tensor], List[torch.Tensor]]",
+          "callers": ["Diffusion.sample_image()"],
+          "side_effects": ["Model inference", "GPU/CPU transfers", "Progress bar updates (tqdm)"],
+          "confidence": "HIGH"
+        }
+      ],
+      "classes": []
+    },
+    {
+      "path": "functions/svd_replacement.py",
+      "type": "python_module",
+      "summary": "Degradation operator implementations. Defines H_functions abstract base class and 9 concrete operators that avoid explicit SVD.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "H_functions",
+          "base_classes": ["ABC"],
+          "methods": ["V", "Vt", "U", "Ut", "singulars", "add_zeros", "H", "Ht", "H_pinv"],
+          "attributes": [],
+          "summary": "Abstract base class for degradation operators using SVD-free methods"
+        },
+        {
+          "name": "GeneralH",
+          "base_classes": ["H_functions"],
+          "methods": ["__init__", "V", "Vt", "U", "Ut", "singulars", "add_zeros", "mat_by_vec"],
+          "attributes": ["_U", "_singulars", "_V", "_Vt", "_Ut"],
+          "summary": "General degradation with explicit SVD (memory inefficient)"
+        },
+        {
+          "name": "Inpainting",
+          "base_classes": ["H_functions"],
+          "methods": ["__init__", "V", "Vt", "U", "Ut", "singulars", "add_zeros"],
+          "attributes": ["channels", "img_dim", "_singulars", "missing_indices", "kept_indices"],
+          "summary": "Mask-based inpainting degradation"
+        },
+        {
+          "name": "Denoising",
+          "base_classes": ["H_functions"],
+          "methods": ["__init__", "V", "Vt", "U", "Ut", "singulars", "add_zeros"],
+          "attributes": ["_singulars"],
+          "summary": "Identity operator for pure denoising"
+        },
+        {
+          "name": "SuperResolution",
+          "base_classes": ["H_functions"],
+          "methods": ["__init__", "V", "Vt", "U", "Ut", "singulars", "add_zeros"],
+          "attributes": ["img_dim", "channels", "y_dim", "ratio", "U_small", "singulars_small", "V_small", "Vt_small"],
+          "summary": "Block-averaging super-resolution (factors 2/4/8/16)"
+        },
+        {
+          "name": "Colorization",
+          "base_classes": ["H_functions"],
+          "methods": ["__init__", "V", "Vt", "U", "Ut", "singulars", "add_zeros"],
+          "attributes": ["channels", "img_dim", "U_small", "singulars_small", "V_small", "Vt_small"],
+          "summary": "RGB to grayscale projection"
+        },
+        {
+          "name": "WalshHadamardCS",
+          "base_classes": ["H_functions"],
+          "methods": ["__init__", "fwht", "V", "Vt", "U", "Ut", "singulars", "add_zeros"],
+          "attributes": ["channels", "img_dim", "ratio", "perm", "_singulars"],
+          "summary": "Compressive sensing via Fast Walsh-Hadamard Transform"
+        },
+        {
+          "name": "SRConv",
+          "base_classes": ["H_functions"],
+          "methods": ["__init__", "V", "Vt", "U", "Ut", "singulars", "add_zeros", "mat_by_img", "img_by_mat"],
+          "attributes": ["img_dim", "channels", "ratio", "small_dim", "U_small", "singulars_small", "V_small", "_singulars", "_perm"],
+          "summary": "Convolution-based super-resolution (bicubic kernels)"
+        },
+        {
+          "name": "Deblurring",
+          "base_classes": ["H_functions"],
+          "methods": ["__init__", "V", "Vt", "U", "Ut", "singulars", "add_zeros", "mat_by_img", "img_by_mat"],
+          "attributes": ["img_dim", "channels", "kernel", "U_small", "singulars_small", "V_small", "_singulars"],
+          "summary": "1D blur degradation (uniform/Gaussian)"
+        },
+        {
+          "name": "Deblurring2D",
+          "base_classes": ["H_functions"],
+          "methods": ["__init__", "V", "Vt", "U", "Ut", "singulars", "add_zeros", "mat_by_img", "img_by_mat"],
+          "attributes": ["img_dim", "channels", "kernel1", "kernel2"],
+          "summary": "Anisotropic 2D blur degradation"
+        }
+      ]
+    },
+    {
+      "path": "functions/ckpt_util.py",
+      "type": "python_module",
+      "summary": "Checkpoint downloading and verification utilities for DDPM models from Heidelberg servers.",
+      "functions": [
+        {
+          "name": "download",
+          "signature": "(url, local_path, chunk_size=1024)",
+          "docstring": "NONE",
+          "returns": "None",
+          "callers": ["get_ckpt_path()", "Diffusion.sample()"],
+          "side_effects": ["Network I/O", "File writes", "Progress bar display"],
+          "confidence": "HIGH"
+        },
+        {
+          "name": "md5_hash",
+          "signature": "(path)",
+          "docstring": "NONE",
+          "returns": "str (hex digest)",
+          "callers": ["get_ckpt_path()"],
+          "side_effects": ["File read"],
+          "confidence": "HIGH"
+        },
+        {
+          "name": "get_ckpt_path",
+          "signature": "(name, root=None, check=False, prefix='exp')",
+          "docstring": "NONE",
+          "returns": "str (file path)",
+          "callers": ["Diffusion.sample()"],
+          "side_effects": ["Downloads file if missing", "MD5 verification if check=True"],
+          "confidence": "HIGH"
+        }
+      ],
+      "classes": []
+    },
+    {
+      "path": "models/diffusion.py",
+      "type": "python_module",
+      "summary": "Custom DDPM U-Net model implementation with time conditioning, attention blocks, and residual connections.",
+      "functions": [
+        {
+          "name": "get_timestep_embedding",
+          "signature": "(timesteps, embedding_dim)",
+          "docstring": "This matches the implementation in Denoising Diffusion Probabilistic Models: From Fairseq. Build sinusoidal embeddings.",
+          "returns": "torch.Tensor",
+          "callers": ["Model.forward()"],
+          "side_effects": [],
+          "confidence": "HIGH"
+        },
+        {
+          "name": "nonlinearity",
+          "signature": "(x)",
+          "docstring": "NONE (comment: swish)",
+          "returns": "torch.Tensor",
+          "callers": ["ResnetBlock.forward()", "AttnBlock.forward()"],
+          "side_effects": [],
+          "confidence": "HIGH"
+        },
+        {
+          "name": "Normalize",
+          "signature": "(in_channels)",
+          "docstring": "NONE",
+          "returns": "torch.nn.GroupNorm",
+          "callers": ["ResnetBlock.__init__()", "AttnBlock.__init__()"],
+          "side_effects": [],
+          "confidence": "HIGH"
+        }
+      ],
+      "classes": [
+        {
+          "name": "Upsample",
+          "base_classes": ["nn.Module"],
+          "methods": ["__init__", "forward"],
+          "attributes": ["with_conv", "conv"],
+          "summary": "2x nearest-neighbor upsampling with optional convolution"
+        },
+        {
+          "name": "Downsample",
+          "base_classes": ["nn.Module"],
+          "methods": ["__init__", "forward"],
+          "attributes": ["with_conv", "conv"],
+          "summary": "2x downsampling via conv or avgpool"
+        },
+        {
+          "name": "ResnetBlock",
+          "base_classes": ["nn.Module"],
+          "methods": ["__init__", "forward"],
+          "attributes": ["in_channels", "out_channels", "norm1", "conv1", "temb_proj", "norm2", "dropout", "conv2"],
+          "summary": "Residual block with time embedding injection"
+        },
+        {
+          "name": "AttnBlock",
+          "base_classes": ["nn.Module"],
+          "methods": ["__init__", "forward"],
+          "attributes": ["in_channels", "norm", "q", "k", "v", "proj_out"],
+          "summary": "Self-attention block with query-key-value mechanism"
+        },
+        {
+          "name": "Model",
+          "base_classes": ["nn.Module"],
+          "methods": ["__init__", "forward"],
+          "attributes": ["ch", "temb_ch", "num_resolutions", "resolution", "in_channels", "temb", "conv_in", "down", "mid", "up", "conv_out"],
+          "summary": "Full U-Net DDPM model with encoder-decoder architecture"
+        }
+      ]
+    },
+    {
+      "path": "guided_diffusion/unet.py",
+      "type": "python_module",
+      "summary": "OpenAI's guided-diffusion UNet implementation with attention, class conditioning, and FP16 support.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "UNetModel",
+          "base_classes": ["nn.Module"],
+          "methods": ["__init__", "forward", "convert_to_fp16", "convert_to_fp32"],
+          "attributes": ["image_size", "in_channels", "model_channels", "out_channels", "num_res_blocks", "attention_resolutions", "dropout", "channel_mult", "use_fp16"],
+          "summary": "Main diffusion U-Net with timestep and class conditioning"
+        },
+        {
+          "name": "SuperResModel",
+          "base_classes": ["UNetModel"],
+          "methods": ["__init__", "forward"],
+          "attributes": [],
+          "summary": "UNet variant for super-resolution with low-res conditioning"
+        },
+        {
+          "name": "EncoderUNetModel",
+          "base_classes": ["nn.Module"],
+          "methods": ["__init__", "forward", "convert_to_fp16"],
+          "attributes": [],
+          "summary": "Encoder-only UNet for classification/classifier guidance"
+        }
+      ]
+    },
+    {
+      "path": "guided_diffusion/script_util.py",
+      "type": "python_module",
+      "summary": "Factory functions and defaults for creating OpenAI UNet models and classifiers.",
+      "functions": [
+        {
+          "name": "create_model",
+          "signature": "(image_size, num_channels, num_res_blocks, ...)",
+          "docstring": "NONE",
+          "returns": "UNetModel",
+          "callers": ["Diffusion.sample()"],
+          "side_effects": [],
+          "confidence": "HIGH"
+        },
+        {
+          "name": "create_classifier",
+          "signature": "(...)",
+          "docstring": "NONE",
+          "returns": "EncoderUNetModel",
+          "callers": ["Diffusion.sample()"],
+          "side_effects": [],
+          "confidence": "MEDIUM"
+        },
+        {
+          "name": "diffusion_defaults",
+          "signature": "()",
+          "docstring": "Defaults for image and classifier training.",
+          "returns": "dict",
+          "callers": ["model_and_diffusion_defaults()"],
+          "side_effects": [],
+          "confidence": "HIGH"
+        },
+        {
+          "name": "classifier_defaults",
+          "signature": "()",
+          "docstring": "Defaults for classifier models.",
+          "returns": "dict",
+          "callers": ["classifier_and_diffusion_defaults()"],
+          "side_effects": [],
+          "confidence": "HIGH"
+        }
+      ],
+      "classes": []
+    },
+    {
+      "path": "datasets/__init__.py",
+      "type": "python_module",
+      "summary": "Dataset factory and transforms. Supports CelebA, LSUN, CelebA-HQ, FFHQ, ImageNet with OOD modes.",
+      "functions": [
+        {
+          "name": "get_dataset",
+          "signature": "(args, config)",
+          "docstring": "NONE",
+          "returns": "Tuple[Dataset, Dataset]",
+          "callers": ["Diffusion.sample_sequence()"],
+          "side_effects": ["Disk I/O", "Dataset downloads (CelebA)", "Applies transforms"],
+          "confidence": "HIGH"
+        },
+        {
+          "name": "center_crop_arr",
+          "signature": "(pil_image, image_size=256)",
+          "docstring": "NONE (comment: Imported from openai/guided-diffusion)",
+          "returns": "np.ndarray",
+          "callers": ["get_dataset() transform"],
+          "side_effects": [],
+          "confidence": "HIGH"
+        },
+        {
+          "name": "data_transform",
+          "signature": "(config, X)",
+          "docstring": "NONE",
+          "returns": "torch.Tensor",
+          "callers": ["Diffusion.sample_sequence()"],
+          "side_effects": [],
+          "confidence": "HIGH"
+        },
+        {
+          "name": "inverse_data_transform",
+          "signature": "(config, X)",
+          "docstring": "NONE",
+          "returns": "torch.Tensor",
+          "callers": ["Diffusion.sample_sequence()"],
+          "side_effects": [],
+          "confidence": "HIGH"
+        }
+      ],
+      "classes": [
+        {
+          "name": "Crop",
+          "base_classes": ["object"],
+          "methods": ["__init__", "__call__", "__repr__"],
+          "attributes": ["x1", "x2", "y1", "y2"],
+          "summary": "Custom crop transform for CelebA face centering"
+        }
+      ]
+    },
+    {
+      "path": "datasets/imagenet_subset.py",
+      "type": "python_module",
+      "summary": "Custom ImageNet dataset loader that reads image paths from text file.",
+      "functions": [
+        {
+          "name": "pil_loader",
+          "signature": "(path)",
+          "docstring": "NONE",
+          "returns": "PIL.Image",
+          "callers": ["default_loader()"],
+          "side_effects": ["File I/O"],
+          "confidence": "HIGH"
+        },
+        {
+          "name": "default_loader",
+          "signature": "(path)",
+          "docstring": "NONE",
+          "returns": "PIL.Image",
+          "callers": ["ImageDataset.__getitem__()"],
+          "side_effects": ["File I/O"],
+          "confidence": "HIGH"
+        }
+      ],
+      "classes": [
+        {
+          "name": "CenterCropLongEdge",
+          "base_classes": ["object"],
+          "methods": ["__call__", "__repr__"],
+          "attributes": [],
+          "summary": "Crop PIL image to square using shortest edge"
+        },
+        {
+          "name": "ImageDataset",
+          "base_classes": ["data.Dataset"],
+          "methods": ["__init__", "__len__", "__getitem__"],
+          "attributes": ["root_dir", "transform", "metas", "num"],
+          "summary": "Dataset that loads images from filename list (stem + .jpeg)"
+        }
+      ]
+    },
+    {
+      "path": "Untitled5.ipynb",
+      "type": "jupyter_notebook",
+      "summary": "Google Colab demo notebook. Sets up environment, downloads models and datasets, runs DDRM inference, exports results to Drive.",
+      "cells": [
+        {
+          "type": "code",
+          "summary": "Clone DDRM repo and install dependencies (repeated in cell 2)"
+        },
+        {
+          "type": "code",
+          "summary": "Download OpenAI diffusion models (256x256, 512x512)"
+        },
+        {
+          "type": "code",
+          "summary": "Download demo datasets from GitHub"
+        },
+        {
+          "type": "code",
+          "summary": "Download ImageNet validation list"
+        },
+        {
+          "type": "code",
+          "summary": "Verify dataset structure and count images"
+        },
+        {
+          "type": "code",
+          "summary": "Prepare custom ImageNet dataset from OOD images"
+        },
+        {
+          "type": "code",
+          "summary": "Run DDRM inference (deblur_uni and sr4)"
+        },
+        {
+          "type": "code",
+          "summary": "Run additional sr4 experiment with 40 timesteps"
+        },
+        {
+          "type": "code",
+          "summary": "Export results to Google Drive"
+        }
+      ]
+    }
+  ],
+  "models": [
+    {
+      "name": "UNetModel (OpenAI)",
+      "type": "pretrained",
+      "defined_in": "guided_diffusion/unet.py:396-666",
+      "instantiated_in": "runners/diffusion.py:121-141",
+      "architecture_summary": "U-Net with ResNet blocks, self-attention, time/class conditioning. Channels: 256, res_blocks: 2, attention: [32,16,8], FP16 support",
+      "pretrained": true,
+      "checkpoint_paths": [
+        "https://openaipublic.blob.core.windows.net/diffusion/jul-2021/256x256_diffusion_uncond.pt",
+        "https://openaipublic.blob.core.windows.net/diffusion/jul-2021/256x256_diffusion.pt",
+        "https://openaipublic.blob.core.windows.net/diffusion/jul-2021/512x512_diffusion.pt"
+      ],
+      "training_hyperparams": "N/A (inference only)"
+    },
+    {
+      "name": "Model (Custom DDPM)",
+      "type": "custom",
+      "defined_in": "models/diffusion.py:192-250+",
+      "instantiated_in": "runners/diffusion.py:98-117",
+      "architecture_summary": "Custom U-Net with time embedding. Base channels: 128, multipliers: [1,1,2,2,4,4], attention: [16], ResNet blocks with GroupNorm and Swish",
+      "pretrained": true,
+      "checkpoint_paths": [
+        "https://image-editing-test-12345.s3-us-west-2.amazonaws.com/checkpoints/celeba_hq.ckpt",
+        "https://heibox.uni-heidelberg.de/f/... (LSUN models)"
+      ],
+      "training_hyperparams": "N/A (inference only, but configs have: Adam, lr=0.00002, batch_size=64)"
+    },
+    {
+      "name": "EncoderUNetModel (Classifier)",
+      "type": "pretrained",
+      "defined_in": "guided_diffusion/unet.py:684+",
+      "instantiated_in": "runners/diffusion.py:146-152",
+      "architecture_summary": "Encoder-only U-Net for ImageNet classification (1000 classes), FP16 support",
+      "pretrained": true,
+      "checkpoint_paths": [
+        "https://openaipublic.blob.core.windows.net/diffusion/jul-2021/256x256_classifier.pt",
+        "https://openaipublic.blob.core.windows.net/diffusion/jul-2021/512x512_classifier.pt"
+      ],
+      "training_hyperparams": "N/A (inference only)"
+    }
+  ],
+  "dependencies": {
+    "conda_channels": ["pytorch", "conda-forge", "defaults"],
+    "conda_packages": [
+      "python=3.9.7",
+      "pytorch=1.10.1",
+      "torchvision=0.11.2",
+      "torchaudio=0.10.1",
+      "cudatoolkit=11.3.1",
+      "numpy=1.21.2",
+      "scipy=1.7.3",
+      "pillow=8.4.0",
+      "pyyaml=6.0",
+      "tqdm=4.62.3",
+      "tensorboard=2.7.0",
+      "requests=2.26.0",
+      "lmdb=0.9.29"
+    ],
+    "pip_packages": ["torch-fidelity==0.3.0"],
+    "platform_issues": [
+      "CRITICAL: cudatoolkit=11.3.1 - GPU-only, not available on macOS",
+      "CRITICAL: pytorch/torchvision/torchaudio built for CUDA 11.3 - requires GPU",
+      "WARNING: Linux-specific packages (_libgcc_mutex, ld_impl_linux-64, libgcc-ng, libgomp, libstdcxx-ng) - not available on macOS/Windows",
+      "MISSING: einops and matplotlib used in notebook but not in environment.yml"
+    ]
+  },
+  "data_sources": [
+    {
+      "name": "OpenAI Diffusion Models",
+      "type": "pretrained_weights",
+      "url": "https://openaipublic.blob.core.windows.net/diffusion/jul-2021/",
+      "files": ["256x256_diffusion*.pt", "512x512_*.pt", "classifiers"],
+      "size": "~1.2-2.4 GB per model",
+      "verification": "NONE"
+    },
+    {
+      "name": "CelebA-HQ Model",
+      "type": "pretrained_weights",
+      "url": "https://image-editing-test-12345.s3-us-west-2.amazonaws.com/checkpoints/celeba_hq.ckpt",
+      "files": ["celeba_hq.ckpt"],
+      "size": "~500 MB (estimated)",
+      "verification": "NONE"
+    },
+    {
+      "name": "DDPM Models (Heidelberg)",
+      "type": "pretrained_weights",
+      "url": "https://heibox.uni-heidelberg.de/f/...",
+      "files": ["CIFAR10, LSUN bedroom/cat/church"],
+      "size": "~200-500 MB each",
+      "verification": "MD5 checksums"
+    },
+    {
+      "name": "DDRM Demo Datasets",
+      "type": "images",
+      "url": "https://github.com/jiamings/ddrm-exp-datasets.git",
+      "files": ["OOD images for various categories"],
+      "size": "Unknown (depends on repo)",
+      "verification": "NONE"
+    },
+    {
+      "name": "ImageNet Val 1K List",
+      "type": "metadata",
+      "url": "https://raw.githubusercontent.com/XingangPan/deep-generative-prior/master/scripts/imagenet_val_1k.txt",
+      "files": ["imagenet_val_1k.txt"],
+      "size": "<10 KB",
+      "verification": "NONE"
+    },
+    {
+      "name": "Inpainting Masks",
+      "type": "binary_data",
+      "location": "inp_masks/",
+      "files": ["lolcat_extra.npy", "lorem3.npy"],
+      "size": "<1 MB each",
+      "verification": "NONE"
+    }
+  ],
+  "security_warnings": [
+    {
+      "severity": "MEDIUM",
+      "type": "unverified_downloads",
+      "description": "OpenAI and CelebA-HQ models downloaded without checksum verification",
+      "affected_files": ["runners/diffusion.py:130-145", "runners/diffusion.py:112"],
+      "recommendation": "Add SHA256 checksum verification for all downloaded models"
+    },
+    {
+      "severity": "LOW",
+      "type": "external_dependencies",
+      "description": "Relies on external servers (Azure Blob, AWS S3, Heidelberg, GitHub) for critical assets",
+      "affected_files": ["functions/ckpt_util.py", "runners/diffusion.py"],
+      "recommendation": "Consider mirroring checkpoints to local/institutional storage"
+    },
+    {
+      "severity": "INFO",
+      "type": "data_licensing",
+      "description": "ImageNet and CelebA have usage restrictions (academic only for CelebA)",
+      "affected_files": ["datasets/__init__.py"],
+      "recommendation": "Add LICENSE.md documenting dataset and model licenses"
+    }
+  ],
+  "unknown_items": [
+    {
+      "item": "Actual dataset sizes",
+      "reason": "Depends on user downloads/preparation",
+      "impact": "Cannot estimate total inference time or disk space requirements"
+    },
+    {
+      "item": "Model output channels (3 vs 6)",
+      "reason": "Configs specify learn_sigma=True but code slices [:,:3]",
+      "impact": "Unclear if learned variance is used or discarded"
+    },
+    {
+      "item": "Classifier guidance usage",
+      "reason": "class_cond=false in imagenet_256.yml but classifier loading code exists",
+      "impact": "Whether classifier improves results is runtime-dependent"
+    },
+    {
+      "item": "GPU memory requirements",
+      "reason": "Depends on batch_size, image_size, timesteps, model type",
+      "impact": "Users may encounter OOM errors without guidance"
+    },
+    {
+      "item": "Numerical stability",
+      "reason": "Singular value thresholding (ZERO=3e-2) may cause issues for some degradations",
+      "impact": "Potential NaNs or poor restoration quality"
+    },
+    {
+      "item": "Notebook execution order",
+      "reason": "Cells 1-2 are duplicates, execution metadata not preserved",
+      "impact": "Minor confusion but both cells do same thing"
+    },
+    {
+      "item": "Reproducibility",
+      "reason": "Random seed set but PyTorch/CUDA non-determinism not disabled",
+      "impact": "Results may vary slightly between runs"
+    },
+    {
+      "item": "Colab PyTorch version",
+      "reason": "Notebook uses 'Colab default PyTorch' which changes over time",
+      "impact": "Compatibility issues may arise in future"
+    }
+  ],
+  "degradation_types": [
+    "cs2", "cs4", "inp", "inp_lolcat", "inp_lorem", "deno",
+    "deblur_uni", "deblur_gauss", "deblur_aniso",
+    "sr2", "sr4", "sr8", "sr16",
+    "sr_bicubic4", "sr_bicubic8", "sr_bicubic16",
+    "color"
+  ],
+  "metrics": ["PSNR"],
+  "output_formats": ["PNG (8-bit RGB)"],
+  "supported_platforms": {
+    "primary": "Linux with NVIDIA GPU (CUDA 11.3)",
+    "possible": "macOS CPU-only (with modifications)",
+    "not_supported": "Windows (untested), AMD GPUs, older CUDA versions"
+  }
+}
+
